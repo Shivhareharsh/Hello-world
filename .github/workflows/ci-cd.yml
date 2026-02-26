@@ -1,0 +1,80 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # Step 1: Checkout the code
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    # Step 2: Verify HTML file exists
+    - name: Verify HTML file
+      run: |
+        if [ -f index.html ]; then
+          echo "index.html found"
+          cat index.html
+        else
+          echo "index.html not found"
+          exit 1
+        fi
+    
+    # Step 3: Build Docker Image
+    - name: Build Docker Image
+      run: docker build -t hello-world-app:latest .
+    
+    # Step 4: Test the container
+    - name: Test Container
+      run: |
+        docker run -d -p 8888:80 --name test-container hello-world-app:latest
+        sleep 5
+        curl -f http://localhost:8888 || exit 1
+        docker stop test-container
+        docker rm test-container
+    
+    # Step 5: Login to Docker Hub (if credentials available)
+    - name: Login to Docker Hub
+      if: success()
+      run: |
+        if [ "${{ secrets.DOCKER_USERNAME }}" != "" ]; then
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+        fi
+      continue-on-error: true
+    
+    # Step 6: Push to Docker Hub (if login successful)
+    - name: Push to Docker Hub
+      if: success()
+      run: |
+        if [ "${{ secrets.DOCKER_USERNAME }}" != "" ]; then
+          docker tag hello-world-app:latest ${{ secrets.DOCKER_USERNAME }}/hello-world-app:latest
+          docker push ${{ secrets.DOCKER_USERNAME }}/hello-world-app:latest
+        fi
+      continue-on-error: true
+    
+    # Step 7: Deploy to local environment
+    - name: Deploy to Local
+      run: |
+        # Stop existing container if running
+        docker rm -f hello-world-app 2>/dev/null || true
+        # Run new container
+        docker run -d -p 8080:80 --name hello-world-app hello-world-app:latest
+        echo "Application deployed successfully on port 8080"
+    
+    # Step 8: Display deployment info
+    - name: Deployment Info
+      run: |
+        echo "=========================================="
+        echo "Deployment Complete!"
+        echo "Application running at: http://localhost:8080"
+        echo "Container ID: $(docker ps -q -f name=hello-world-app)"
+        echo "=========================================="
+
